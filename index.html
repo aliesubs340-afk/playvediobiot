@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>المشغّل</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #f3f1ec;
+    --surface: #ffffff;
+    --text: #1b1f2a;
+    --muted: #6a7080;
+    --accent: #1f6f6a;
+    --stage: #0c0e13;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12141b;
+      --surface: #1b1f2a;
+      --text: #eceef4;
+      --muted: #9aa1b3;
+      --accent: #5fd0c4;
+      --stage: #000;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Tajawal", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .stage {
+    background: var(--stage);
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 70vh;
+  }
+  .stage video, .stage iframe {
+    width: 100%; height: 100%; border: 0; display: block; background: #000;
+  }
+  .info { padding: 16px 18px; }
+  h1 { font-size: 1.15rem; margin: 0 0 6px; line-height: 1.5; }
+  p { margin: 0; color: var(--muted); font-size: .92rem; line-height: 1.7; }
+  .error {
+    margin: 18px; padding: 14px 16px; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--muted);
+  }
+  .error strong { color: var(--accent); }
+  button {
+    font: inherit; margin-top: 12px; padding: 10px 18px; border-radius: 10px;
+    border: 0; background: var(--accent); color: var(--bg); cursor: pointer;
+  }
+  button:focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
+</style>
+</head>
+<body>
+  <div class="stage" id="stage"></div>
+  <div class="info" id="info"></div>
+
+<script>
+(function () {
+  try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (e) {}
+
+  var q = new URLSearchParams(location.search);
+  var targetUrl = q.get("url") || "";
+  var title = q.get("title") || "";
+  var stage = document.getElementById("stage");
+  var info = document.getElementById("info");
+
+  function fail(msg) {
+    stage.style.display = "none";
+    info.innerHTML = "";
+    var box = document.createElement("div");
+    box.className = "error";
+    var s = document.createElement("strong");
+    s.textContent = "عذراً، تعذر العرض";
+    var p = document.createElement("p");
+    p.textContent = msg;
+    box.appendChild(s); box.appendChild(p);
+    document.body.appendChild(box);
+  }
+
+  function setInfo(t, sub) {
+    info.innerHTML = "";
+    var h = document.createElement("h1");
+    h.textContent = t;
+    var p = document.createElement("p");
+    p.textContent = sub;
+    info.appendChild(h); info.appendChild(p);
+  }
+
+  function embedIframe(src) {
+    var f = document.createElement("iframe");
+    f.src = src;
+    f.allow = "autoplay; fullscreen; picture-in-picture; encrypted-media";
+    f.allowFullscreen = true;
+    stage.appendChild(f);
+  }
+
+  if (!targetUrl || !/^https:\/\//i.test(targetUrl)) {
+    fail("الرابط غير صالح أو ناقص. يجيب أن يبدأ الرابط بـ https://");
+    return;
+  }
+
+  var host = "";
+  try { host = new URL(targetUrl).hostname; } catch (e) {}
+
+  // 1. فحص روابط يوتيوب
+  var ytMatch = targetUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([A-Za-z0-9_-]{11})/);
+  if (ytMatch) {
+    var ytId = ytMatch[1];
+    embedIframe("https://www.youtube-nocookie.com/embed/" + ytId + "?playsinline=1&rel=0");
+    setInfo(title || "فيديو يوتيوب", "يشتغل بمشغل يوتيوب الرسمي.");
+  }
+  // 2. فحص روابط فيميو
+  else if (/vimeo\.com\/(?:video\/)?(\d+)/.test(targetUrl)) {
+    var vimeoMatch = targetUrl.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+    embedIframe("https://player.vimeo.com/video/" + vimeoMatch[1]);
+    setInfo(title || "فيديو فيميو", "يشتغل بمشغل فيميو الرسمي.");
+  }
+  // 3. فحص ملفات الوسائط المباشرة أو روابط HLS
+  else if (/\.(mp4|webm|m4v|mov|m3u8)(\?.*)?$/i.test(targetUrl)) {
+    var v = document.createElement("video");
+    v.controls = true;
+    v.playsInline = true;
+    v.preload = "metadata";
+    stage.appendChild(v);
+    
+    v.addEventListener("error", function () {
+      fail("الرابط ما ينفتح أو أن الموقع لا يسمح بالعرض المباشر (CORS).");
+    });
+
+    if (/\.m3u8(\?|$)/i.test(targetUrl) && !v.canPlayType("application/vnd.apple.mpegurl")) {
+      var s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js";
+      s.onload = function () {
+        if (window.Hls && Hls.isSupported()) {
+          var hls = new Hls();
+          hls.loadSource(targetUrl);
+          hls.attachMedia(v);
+          hls.on(Hls.Events.ERROR, function (_, d) {
+            if (d.fatal) fail("تعذر تحميل بث HLS من هذا الرابط.");
+          });
+        } else {
+          fail("هذا الجهاز ما يدعم بث HLS.");
+        }
+      };
+      document.head.appendChild(s);
+    } else {
+      v.src = targetUrl;
+    }
+    setInfo(title || "فيديو مباشر", host);
+  }
+  // 4. لأي رابط آخر (يتم فتحه كـ iframe عام للموقع)
+  else {
+    embedIframe(targetUrl);
+    setInfo(title || "محتوى الويب", host || targetUrl);
+  }
+})();
+</script>
+</body>
+</html>
